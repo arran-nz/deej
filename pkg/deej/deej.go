@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -20,11 +21,13 @@ const (
 
 // Deej is the main entity managing access to all sub-components
 type Deej struct {
-	logger   *zap.SugaredLogger
-	notifier Notifier
-	config   *CanonicalConfig
-	serial   *SerialIO
-	sessions *sessionMap
+	logger          *zap.SugaredLogger
+	notifier        Notifier
+	config          *CanonicalConfig
+	serial          *SerialIO
+	sessions        *sessionMap
+	processMonitor  *ProcessMonitor
+	mediaController *MediaController
 
 	stopChannel chan bool
 	version     string
@@ -76,6 +79,12 @@ func NewDeej(logger *zap.SugaredLogger, verbose bool) (*Deej, error) {
 	}
 
 	d.sessions = sessions
+
+	// create process monitor for LED updates
+	d.processMonitor = NewProcessMonitor(d, serial, logger)
+
+	// create media controller for media key simulation
+	d.mediaController = NewMediaController(logger)
 
 	logger.Debug("Created deej instance")
 
@@ -166,7 +175,13 @@ func (d *Deej) run() {
 
 				d.signalStop()
 			}
+			return
 		}
+
+		// start process monitor after serial connection is established
+		// wait for Arduino to fully initialize before sending LED commands
+		<-time.After(1 * time.Second)
+		d.processMonitor.Start()
 	}()
 
 	// wait until stopped (gracefully)
@@ -191,6 +206,7 @@ func (d *Deej) stop() error {
 	d.logger.Info("Stopping")
 
 	d.config.StopWatchingConfigFile()
+	d.processMonitor.Stop()
 	d.serial.Stop()
 
 	// release the session map

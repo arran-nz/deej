@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"go.bug.st/serial"
@@ -27,6 +28,7 @@ type SerialIO struct {
 	connected   bool
 	connOptions *serial.Mode
 	conn        serial.Port
+	writeMu     sync.Mutex
 
 	lastKnownNumSliders        int
 	currentSliderPercentValues []float32
@@ -99,6 +101,12 @@ func (sio *SerialIO) Start() error {
 	namedLogger := sio.logger.Named(strings.ToLower(sio.comPort))
 
 	namedLogger.Infow("Connected", "conn", sio.conn)
+
+	// Set DTR to enable bidirectional communication (required for CH340 chips)
+	if err := sio.conn.SetDTR(true); err != nil {
+		namedLogger.Warnw("Failed to set DTR", "error", err)
+	}
+
 	sio.connected = true
 
 	// read lines or await a stop
@@ -136,6 +144,40 @@ func (sio *SerialIO) SubscribeToSliderMoveEvents() chan SliderMoveEvent {
 	sio.sliderMoveConsumers = append(sio.sliderMoveConsumers, ch)
 
 	return ch
+}
+
+// SendLEDState sends a command to the Arduino to turn an LED on or off
+// Sends multiple times to overcome CH340 echo/collision issues
+func (sio *SerialIO) SendLEDState(sliderID int, on bool) error {
+	if !sio.connected || sio.conn == nil {
+		return errors.New("serial: not connected")
+	}
+
+	state := "0"
+	if on {
+		state = "1"
+	}
+
+	command := fmt.Sprintf("#L%d:%s\n", sliderID, state)
+
+	sio.writeMu.Lock()
+	defer sio.writeMu.Unlock()
+
+	// Send command multiple times to overcome collision with echoed slider data
+	for i := 0; i < 5; i++ {
+		_, err := sio.conn.Write([]byte(command))
+		if err != nil {
+			sio.logger.Warnw("Failed to send LED state", "sliderID", sliderID, "on", on, "error", err)
+			return fmt.Errorf("write LED state: %w", err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	if sio.deej.Verbose() {
+		sio.logger.Debugw("Sent LED state", "sliderID", sliderID, "on", on)
+	}
+
+	return nil
 }
 
 func (sio *SerialIO) setupOnConfigReload() {
@@ -219,6 +261,11 @@ func (sio *SerialIO) readLine(logger *zap.SugaredLogger, reader *bufio.Reader) c
 }
 
 func (sio *SerialIO) handleLine(logger *zap.SugaredLogger, line string) {
+	// Check for button commands first (format: #B<id>\r\n)
+	if strings.HasPrefix(line, "#B") {
+		sio.handleButtonCommand(logger, line)
+		return
+	}
 
 	// this function receives an unsanitized line which is guaranteed to end with LF,
 	// but most lines will end with CRLF. it may also have garbage instead of
@@ -295,5 +342,32 @@ func (sio *SerialIO) handleLine(logger *zap.SugaredLogger, line string) {
 				consumer <- moveEvent
 			}
 		}
+	}
+}
+
+func (sio *SerialIO) handleButtonCommand(logger *zap.SugaredLogger, line string) {
+	// Format: #B<id>\r\n
+	line = strings.TrimSuffix(line, "\r\n")
+	line = strings.TrimSuffix(line, "\n")
+
+	if len(line) < 3 {
+		return
+	}
+
+	buttonID := line[2:] // Get everything after "#B"
+
+	if sio.deej.Verbose() {
+		logger.Debugw("Button pressed", "buttonID", buttonID)
+	}
+
+	switch buttonID {
+	case "0":
+		sio.deej.mediaController.PlayPause()
+	case "1":
+		sio.deej.mediaController.PrevTrack()
+	case "2":
+		sio.deej.mediaController.NextTrack()
+	default:
+		logger.Warnw("Unknown button ID", "buttonID", buttonID)
 	}
 }
