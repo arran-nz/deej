@@ -27,6 +27,7 @@ type CanonicalConfig struct {
 
 	NoiseReductionLevel string
 	LEDRefreshInterval  time.Duration
+	LEDMode             string
 
 	logger             *zap.SugaredLogger
 	notifier           Notifier
@@ -55,10 +56,16 @@ const (
 	configKeyBaudRate            = "baud_rate"
 	configKeyNoiseReductionLevel = "noise_reduction"
 	configKeyLEDRefreshInterval  = "led_refresh_interval"
+	configKeyLEDMode             = "led_mode"
 
 	defaultCOMPort           = "COM4"
 	defaultBaudRate          = 9600
 	defaultLEDRefreshSeconds = 5
+	defaultLEDMode           = "process"
+
+	// LED mode constants
+	LEDModeProcess = "process" // LED on when process is running
+	LEDModeAudio   = "audio"   // LED on when process is outputting audio
 )
 
 // has to be defined as a non-constant because we're using path.Join
@@ -93,6 +100,7 @@ func NewConfig(logger *zap.SugaredLogger, notifier Notifier) (*CanonicalConfig, 
 	userConfig.SetDefault(configKeyCOMPort, defaultCOMPort)
 	userConfig.SetDefault(configKeyBaudRate, defaultBaudRate)
 	userConfig.SetDefault(configKeyLEDRefreshInterval, defaultLEDRefreshSeconds)
+	userConfig.SetDefault(configKeyLEDMode, defaultLEDMode)
 
 	internalConfig := viper.New()
 	internalConfig.SetConfigName(internalConfigName)
@@ -248,6 +256,14 @@ func (cc *CanonicalConfig) populateFromVipers() error {
 		ledRefreshSeconds = 0
 	}
 	cc.LEDRefreshInterval = time.Duration(ledRefreshSeconds) * time.Second
+
+	cc.LEDMode = cc.userConfig.GetString(configKeyLEDMode)
+	if cc.LEDMode != LEDModeProcess && cc.LEDMode != LEDModeAudio {
+		cc.logger.Warnw("Invalid LED mode, using default",
+			"value", cc.LEDMode,
+			"default", defaultLEDMode)
+		cc.LEDMode = defaultLEDMode
+	}
 
 	cc.logger.Debug("Populated config fields from vipers")
 

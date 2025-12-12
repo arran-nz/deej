@@ -12,19 +12,21 @@ var (
 	versionTag string
 	buildType  string
 
-	verbose bool
+	verbose   bool
+	logFilter string
 )
 
 func init() {
-	flag.BoolVar(&verbose, "verbose", false, "show verbose logs (useful for debugging serial)")
+	flag.BoolVar(&verbose, "verbose", false, "show verbose logs (useful for debugging)")
 	flag.BoolVar(&verbose, "v", false, "shorthand for --verbose")
+	flag.StringVar(&logFilter, "log-filter", "", "filter logs by component (e.g., 'audio-meter', 'serial', 'process-monitor')")
+	flag.StringVar(&logFilter, "f", "", "shorthand for --log-filter")
 	flag.Parse()
 }
 
 func main() {
-
-	// first we need a logger
-	logger, err := deej.NewLogger(buildType)
+	// Create logger with optional filtering
+	logger, err := deej.NewLoggerWithFilter(buildType, logFilter)
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create logger: %v", err))
 	}
@@ -37,29 +39,30 @@ func main() {
 		"versionTag", versionTag,
 		"buildType", buildType)
 
-	// provide a fair warning if the user's running in verbose mode
 	if verbose {
 		named.Debug("Verbose flag provided, all log messages will be shown")
 	}
 
-	// create the deej instance
+	if logFilter != "" {
+		named.Infow("Log filter active", "filter", logFilter)
+	}
+
+	// Create the deej instance
 	d, err := deej.NewDeej(logger, verbose)
 	if err != nil {
 		named.Fatalw("Failed to create deej object", "error", err)
 	}
 
-	// if injected by build process, set version info to show up in the tray
+	// Set version info for tray display if provided by build process
 	if buildType != "" && (versionTag != "" || gitCommit != "") {
 		identifier := gitCommit
 		if versionTag != "" {
 			identifier = versionTag
 		}
-
-		versionString := fmt.Sprintf("Version %s-%s", buildType, identifier)
-		d.SetVersion(versionString)
+		d.SetVersion(fmt.Sprintf("Version %s-%s", buildType, identifier))
 	}
 
-	// onwards, to glory
+	// Start deej
 	if err = d.Initialize(); err != nil {
 		named.Fatalw("Failed to initialize deej", "error", err)
 	}

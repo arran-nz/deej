@@ -7,7 +7,7 @@
 # windows only - you can use 'system' to control the "system sounds" volume
 # important: slider indexes start at 0, regardless of which analog pins you're using!
 slider_mapping:
-  0: master
+  0: Discord.exe
   1:
     - TIDAL.exe
     - TIDALPlayer.exe
@@ -31,3 +31,6 @@ noise_reduction: low
 # LED refresh interval in seconds (0 = disabled)
 # Periodically re-sends all LED states to ensure sync with Arduino
 led_refresh_interval: 5
+
+# LED mode: "process" (LED on when app is running) or "audio" (LED on when app is outputting audio)
+led_mode: audio
