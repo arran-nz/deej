@@ -26,6 +26,7 @@ type CanonicalConfig struct {
 	InvertSliders bool
 
 	NoiseReductionLevel string
+	LEDRefreshInterval  time.Duration
 
 	logger             *zap.SugaredLogger
 	notifier           Notifier
@@ -53,9 +54,11 @@ const (
 	configKeyCOMPort             = "com_port"
 	configKeyBaudRate            = "baud_rate"
 	configKeyNoiseReductionLevel = "noise_reduction"
+	configKeyLEDRefreshInterval  = "led_refresh_interval"
 
-	defaultCOMPort  = "COM4"
-	defaultBaudRate = 9600
+	defaultCOMPort           = "COM4"
+	defaultBaudRate          = 9600
+	defaultLEDRefreshSeconds = 5
 )
 
 // has to be defined as a non-constant because we're using path.Join
@@ -89,6 +92,7 @@ func NewConfig(logger *zap.SugaredLogger, notifier Notifier) (*CanonicalConfig, 
 	userConfig.SetDefault(configKeyInvertSliders, false)
 	userConfig.SetDefault(configKeyCOMPort, defaultCOMPort)
 	userConfig.SetDefault(configKeyBaudRate, defaultBaudRate)
+	userConfig.SetDefault(configKeyLEDRefreshInterval, defaultLEDRefreshSeconds)
 
 	internalConfig := viper.New()
 	internalConfig.SetConfigName(internalConfigName)
@@ -238,6 +242,12 @@ func (cc *CanonicalConfig) populateFromVipers() error {
 
 	cc.InvertSliders = cc.userConfig.GetBool(configKeyInvertSliders)
 	cc.NoiseReductionLevel = cc.userConfig.GetString(configKeyNoiseReductionLevel)
+
+	ledRefreshSeconds := cc.userConfig.GetInt(configKeyLEDRefreshInterval)
+	if ledRefreshSeconds < 0 {
+		ledRefreshSeconds = 0
+	}
+	cc.LEDRefreshInterval = time.Duration(ledRefreshSeconds) * time.Second
 
 	cc.logger.Debug("Populated config fields from vipers")
 

@@ -137,22 +137,40 @@ void checkSerialInput() {
 }
 
 void processCommand(char* cmd) {
-  // Parse LED command format: #L<id>:<state>
-  // Example: #L0:1 (LED 0 on), #L1:0 (LED 1 off)
-  if (cmd[0] == '#' && cmd[1] == 'L') {
-    int ledId = -1;
-    int state = -1;
+  if (cmd[0] != '#' || cmd[1] != 'L') {
+    return;
+  }
 
-    // Find colon position
-    char* colonPos = strchr(cmd, ':');
-    if (colonPos != NULL) {
-      *colonPos = '\0';  // Split string at colon
-      ledId = atoi(cmd + 2);  // Parse LED ID (after '#L')
-      state = atoi(colonPos + 1);  // Parse state (after ':')
+  // Batched LED command: #LS:1,0,1 (all LED states comma-separated)
+  if (cmd[2] == 'S' && cmd[3] == ':') {
+    char* ptr = cmd + 4;  // Start after "#LS:"
+    int ledIndex = 0;
 
-      if (ledId >= 0 && ledId < NUM_SLIDERS) {
-        ledStates[ledId] = (state != 0);
+    while (*ptr != '\0' && ledIndex < NUM_SLIDERS) {
+      ledStates[ledIndex] = (*ptr != '0');
+      ledIndex++;
+
+      // Skip to next value (past comma)
+      while (*ptr != '\0' && *ptr != ',') {
+        ptr++;
       }
+      if (*ptr == ',') {
+        ptr++;
+      }
+    }
+    return;
+  }
+
+  // Single LED command: #L<id>:<state>
+  // Example: #L0:1 (LED 0 on), #L1:0 (LED 1 off)
+  char* colonPos = strchr(cmd, ':');
+  if (colonPos != NULL) {
+    *colonPos = '\0';
+    int ledId = atoi(cmd + 2);
+    int state = atoi(colonPos + 1);
+
+    if (ledId >= 0 && ledId < NUM_SLIDERS) {
+      ledStates[ledId] = (state != 0);
     }
   }
 }

@@ -20,6 +20,7 @@ type ProcessMonitor struct {
 
 	stopChannel     chan bool
 	lastKnownStates map[int]bool
+	numSliders      int
 }
 
 // NewProcessMonitor creates a new ProcessMonitor instance
@@ -49,8 +50,20 @@ func (pm *ProcessMonitor) Stop() {
 }
 
 func (pm *ProcessMonitor) monitorLoop() {
-	ticker := time.NewTicker(processCheckInterval)
-	defer ticker.Stop()
+	processTicker := time.NewTicker(processCheckInterval)
+	defer processTicker.Stop()
+
+	// Set up LED refresh ticker if configured
+	var refreshTicker *time.Ticker
+	var refreshChan <-chan time.Time
+
+	refreshInterval := pm.deej.config.LEDRefreshInterval
+	if refreshInterval > 0 {
+		refreshTicker = time.NewTicker(refreshInterval)
+		refreshChan = refreshTicker.C
+		defer refreshTicker.Stop()
+		pm.logger.Infow("LED refresh enabled", "interval", refreshInterval)
+	}
 
 	// Initial check
 	pm.checkProcesses()
@@ -60,8 +73,10 @@ func (pm *ProcessMonitor) monitorLoop() {
 		case <-pm.stopChannel:
 			pm.logger.Debug("Process monitor stopped")
 			return
-		case <-ticker.C:
+		case <-processTicker.C:
 			pm.checkProcesses()
+		case <-refreshChan:
+			pm.refreshAllLEDs()
 		}
 	}
 }
@@ -84,6 +99,11 @@ func (pm *ProcessMonitor) checkProcesses() {
 	pm.deej.config.SliderMapping.iterate(func(sliderID int, targets []string) {
 		running := pm.isAnyTargetRunning(targets, runningProcesses)
 
+		// Track highest slider ID for refresh
+		if sliderID >= pm.numSliders {
+			pm.numSliders = sliderID + 1
+		}
+
 		// Only send update if state changed
 		if lastState, exists := pm.lastKnownStates[sliderID]; !exists || lastState != running {
 			pm.lastKnownStates[sliderID] = running
@@ -97,6 +117,20 @@ func (pm *ProcessMonitor) checkProcesses() {
 			}
 		}
 	})
+}
+
+func (pm *ProcessMonitor) refreshAllLEDs() {
+	if pm.numSliders == 0 {
+		return
+	}
+
+	if err := pm.serial.SendAllLEDStates(pm.lastKnownStates, pm.numSliders); err != nil {
+		if pm.deej.Verbose() {
+			pm.logger.Warnw("Failed to refresh LED states", "error", err)
+		}
+	} else if pm.deej.Verbose() {
+		pm.logger.Debug("Refreshed all LED states")
+	}
 }
 
 func (pm *ProcessMonitor) isAnyTargetRunning(targets []string, runningProcesses map[string]bool) bool {

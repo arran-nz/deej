@@ -147,7 +147,6 @@ func (sio *SerialIO) SubscribeToSliderMoveEvents() chan SliderMoveEvent {
 }
 
 // SendLEDState sends a command to the Arduino to turn an LED on or off
-// Sends multiple times to overcome CH340 echo/collision issues
 func (sio *SerialIO) SendLEDState(sliderID int, on bool) error {
 	if !sio.connected || sio.conn == nil {
 		return errors.New("serial: not connected")
@@ -163,18 +162,49 @@ func (sio *SerialIO) SendLEDState(sliderID int, on bool) error {
 	sio.writeMu.Lock()
 	defer sio.writeMu.Unlock()
 
-	// Send command multiple times to overcome collision with echoed slider data
-	for i := 0; i < 5; i++ {
-		_, err := sio.conn.Write([]byte(command))
-		if err != nil {
-			sio.logger.Warnw("Failed to send LED state", "sliderID", sliderID, "on", on, "error", err)
-			return fmt.Errorf("write LED state: %w", err)
-		}
-		time.Sleep(20 * time.Millisecond)
+	_, err := sio.conn.Write([]byte(command))
+	if err != nil {
+		sio.logger.Warnw("Failed to send LED state", "sliderID", sliderID, "on", on, "error", err)
+		return fmt.Errorf("write LED state: %w", err)
 	}
 
 	if sio.deej.Verbose() {
 		sio.logger.Debugw("Sent LED state", "sliderID", sliderID, "on", on)
+	}
+
+	return nil
+}
+
+// SendAllLEDStates sends all LED states in a single batched command
+// Format: #LS:1,0,1,0\n (comma-separated states in slider order)
+func (sio *SerialIO) SendAllLEDStates(states map[int]bool, numSliders int) error {
+	if !sio.connected || sio.conn == nil {
+		return errors.New("serial: not connected")
+	}
+
+	// Build comma-separated state string
+	stateStrs := make([]string, numSliders)
+	for i := 0; i < numSliders; i++ {
+		if states[i] {
+			stateStrs[i] = "1"
+		} else {
+			stateStrs[i] = "0"
+		}
+	}
+
+	command := fmt.Sprintf("#LS:%s\n", strings.Join(stateStrs, ","))
+
+	sio.writeMu.Lock()
+	defer sio.writeMu.Unlock()
+
+	_, err := sio.conn.Write([]byte(command))
+	if err != nil {
+		sio.logger.Warnw("Failed to send all LED states", "error", err)
+		return fmt.Errorf("write all LED states: %w", err)
+	}
+
+	if sio.deej.Verbose() {
+		sio.logger.Debugw("Sent all LED states", "states", states)
 	}
 
 	return nil
