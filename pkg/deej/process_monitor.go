@@ -14,7 +14,7 @@ const (
 
 	// audioMeterCheckInterval is how often to poll audio levels (audio mode).
 	// Faster polling since audio can start/stop quickly.
-	audioMeterCheckInterval = 500 * time.Millisecond
+	audioMeterCheckInterval = 100 * time.Millisecond
 )
 
 // ProcessMonitor checks if mapped applications are running (process mode) or
@@ -28,6 +28,7 @@ type ProcessMonitor struct {
 
 	stopChannel     chan bool
 	lastKnownStates map[int]bool
+	lastKnownPeaks  map[int]int
 	numSliders      int
 }
 
@@ -42,6 +43,7 @@ func NewProcessMonitor(deej *Deej, serial *SerialIO, logger *zap.SugaredLogger) 
 		logger:          logger,
 		stopChannel:     make(chan bool),
 		lastKnownStates: make(map[int]bool),
+		lastKnownPeaks:  make(map[int]int),
 	}
 }
 
@@ -110,16 +112,25 @@ func (pm *ProcessMonitor) monitorLoop() {
 // checkProcesses queries active processes/audio and updates LED states.
 func (pm *ProcessMonitor) checkProcesses() {
 	var activeProcesses map[string]bool
+	var peakLevels map[string]float32
 
 	if pm.audioMeter != nil {
-		// Audio mode: check which processes are outputting audio
+		// Audio mode: get peak levels for all processes
 		var err error
-		activeProcesses, err = pm.audioMeter.GetActiveAudioProcesses()
+		peakLevels, err = pm.audioMeter.GetAudioPeakLevels()
 		if err != nil {
 			if pm.deej.Verbose() {
-				pm.logger.Warnw("Failed to get active audio processes", "error", err)
+				pm.logger.Warnw("Failed to get audio peak levels", "error", err)
 			}
 			return
+		}
+
+		// Build activeProcesses from peak levels
+		activeProcesses = make(map[string]bool)
+		for name, level := range peakLevels {
+			if level > 0.001 { // audioActiveThreshold
+				activeProcesses[name] = true
+			}
 		}
 	} else {
 		// Process mode: check which processes are running
@@ -135,9 +146,32 @@ func (pm *ProcessMonitor) checkProcesses() {
 		}
 	}
 
+	// Track current peak values and app names per slider
+	currentPeaks := make(map[int]int)
+	currentNames := make(map[int]string)
+
 	// Check each slider mapping and update LED state if changed
 	pm.deej.config.SliderMapping.iterate(func(sliderID int, targets []string) {
 		active := pm.isAnyTargetActive(targets, activeProcesses)
+
+		// Get peak level and app name for this slider (use highest peak)
+		peakValue := 0
+		appName := ""
+		if peakLevels != nil {
+			for _, target := range targets {
+				targetLower := strings.ToLower(target)
+				if level, ok := peakLevels[targetLower]; ok {
+					levelInt := int(level * 100)
+					if levelInt > peakValue {
+						peakValue = levelInt
+						// Extract app name (remove .exe)
+						appName = strings.TrimSuffix(targetLower, ".exe")
+					}
+				}
+			}
+		}
+		currentPeaks[sliderID] = peakValue
+		currentNames[sliderID] = appName
 
 		// Track highest slider ID for batched refresh
 		if sliderID >= pm.numSliders {
@@ -157,6 +191,16 @@ func (pm *ProcessMonitor) checkProcesses() {
 			}
 		}
 	})
+
+	// Send audio peaks if in audio mode
+	if pm.audioMeter != nil && pm.numSliders > 0 {
+		if err := pm.serial.SendAudioPeaks(currentPeaks, currentNames, pm.numSliders); err != nil {
+			if pm.deej.Verbose() {
+				pm.logger.Warnw("Failed to send audio peaks", "error", err)
+			}
+		}
+		pm.lastKnownPeaks = currentPeaks
+	}
 }
 
 // refreshAllLEDs sends the current state of all LEDs as a batched command.

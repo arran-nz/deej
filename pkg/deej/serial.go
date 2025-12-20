@@ -210,6 +210,72 @@ func (sio *SerialIO) SendAllLEDStates(states map[int]bool, numSliders int) error
 	return nil
 }
 
+// SendAudioPeaks sends audio peak levels with app names for all sliders
+// Format: #AP:50:chrm,75:frfx,30:dscd,0:\n (peak:name pairs)
+func (sio *SerialIO) SendAudioPeaks(peaks map[int]int, names map[int]string, numSliders int) error {
+	if !sio.connected || sio.conn == nil {
+		return errors.New("serial: not connected")
+	}
+
+	// Build comma-separated peak:name pairs
+	parts := make([]string, numSliders)
+	for i := 0; i < numSliders; i++ {
+		name := shortenAppName(names[i])
+		parts[i] = fmt.Sprintf("%d:%s", peaks[i], name)
+	}
+
+	command := fmt.Sprintf("#AP:%s\n", strings.Join(parts, ","))
+
+	sio.writeMu.Lock()
+	defer sio.writeMu.Unlock()
+
+	_, err := sio.conn.Write([]byte(command))
+	if err != nil {
+		sio.logger.Warnw("Failed to send audio peaks", "error", err)
+		return fmt.Errorf("write audio peaks: %w", err)
+	}
+
+	if sio.deej.Verbose() {
+		sio.logger.Debugw("Sent audio peaks", "peaks", peaks, "names", names)
+	}
+
+	return nil
+}
+
+// shortenAppName creates a 4-char abbreviation by removing vowels
+// e.g., "chrome" → "chrm", "firefox" → "frfx", "discord" → "dscd"
+func shortenAppName(name string) string {
+	if name == "" {
+		return ""
+	}
+
+	vowels := "aeiouAEIOU"
+	var result []byte
+
+	// First pass: collect consonants
+	for i := 0; i < len(name) && len(result) < 4; i++ {
+		if !strings.ContainsRune(vowels, rune(name[i])) {
+			result = append(result, name[i])
+		}
+	}
+
+	// If not enough consonants, add vowels from the beginning
+	if len(result) < 4 {
+		for i := 0; i < len(name) && len(result) < 4; i++ {
+			if strings.ContainsRune(vowels, rune(name[i])) {
+				result = append(result, name[i])
+			}
+		}
+	}
+
+	// If still not enough, just take first chars
+	if len(result) < 4 && len(name) >= 4 {
+		return name[:4]
+	}
+
+	return string(result)
+}
+
 func (sio *SerialIO) setupOnConfigReload() {
 	configReloadedChannel := sio.deej.config.SubscribeToChanges()
 
