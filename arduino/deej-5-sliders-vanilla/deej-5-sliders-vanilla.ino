@@ -26,6 +26,12 @@ bool ledStates[NUM_SLIDERS] = {false, false, false, false};
 int audioPeaks[NUM_SLIDERS] = {0, 0, 0, 0};  // 0-100 audio levels from deej
 char appNames[NUM_SLIDERS][5] = {"", "", "", ""};  // 4-char app names + null
 
+// Peak hold for amplitude visualization
+int peakHoldValues[NUM_SLIDERS] = {0, 0, 0, 0};     // Peak hold height (0-54 pixels)
+unsigned long peakHoldTimes[NUM_SLIDERS] = {0};     // When peak was captured
+const unsigned long peakHoldDuration = 250;          // Hold for 250ms (fast/dynamic)
+const int peakDecayRate = 3;                         // Pixels per frame decay (at 20Hz)
+
 // Moving average filter for noise reduction
 const int NUM_SAMPLES = 10;
 int samples[NUM_SLIDERS][NUM_SAMPLES];
@@ -157,9 +163,10 @@ void updateDisplay() {
   }
   lastDisplayUpdate = millis();
 
-  // Check for DEEJ timeout (only after initial connection)
-  if (lastDeejCommand > 0 && millis() - lastDeejCommand > deejTimeoutMs) {
-    showMessage("NO DEEJ", "Check connection");
+  // Show message if deej never connected, or timed out after connecting
+  if (lastDeejCommand == 0 || millis() - lastDeejCommand > deejTimeoutMs) {
+    showMessage(lastDeejCommand == 0 ? "DEEJ" : "NO DEEJ",
+                lastDeejCommand == 0 ? "Waiting..." : "Check connection");
     return;
   }
 
@@ -184,9 +191,28 @@ void updateDisplay() {
     // Map audio peak (0-100) to bar height
     int peakHeight = map(audioPeaks[dataIdx], 0, 100, 0, barMaxHeight);
 
+    // Peak hold logic: capture new peaks, decay old ones
+    if (peakHeight >= peakHoldValues[dataIdx]) {
+      // New peak - capture it
+      peakHoldValues[dataIdx] = peakHeight;
+      peakHoldTimes[dataIdx] = millis();
+    } else if (millis() - peakHoldTimes[dataIdx] > peakHoldDuration) {
+      // Hold time elapsed - decay the peak
+      peakHoldValues[dataIdx] -= peakDecayRate;
+      if (peakHoldValues[dataIdx] < 0) {
+        peakHoldValues[dataIdx] = 0;
+      }
+    }
+
     // Left half: audio peak from deej (no border)
     if (peakHeight > 0) {
       display.fillRect(x, barY + barMaxHeight - peakHeight, halfWidth, peakHeight, SSD1306_WHITE);
+    }
+
+    // Peak hold indicator (2px line above the bar)
+    if (peakHoldValues[dataIdx] > 0 && peakHoldValues[dataIdx] > peakHeight) {
+      int peakY = barY + barMaxHeight - peakHoldValues[dataIdx];
+      display.fillRect(x, peakY, halfWidth, 2, SSD1306_WHITE);
     }
 
     // Right half: slider value (no border)
@@ -194,10 +220,10 @@ void updateDisplay() {
       display.fillRect(x + halfWidth, barY + barMaxHeight - sliderHeight, halfWidth, sliderHeight, SSD1306_WHITE);
     }
 
-    // Draw app name at bottom (TitleCase)
-    display.setTextColor(SSD1306_WHITE);
-    display.setCursor(x, 56);
+    // Draw app name at bottom (TitleCase) - only if mapped
     if (appNames[dataIdx][0] != '\0') {
+      display.setTextColor(SSD1306_WHITE);
+      display.setCursor(x, 56);
       // TitleCase: first char uppercase, rest lowercase
       char titleName[5];
       titleName[0] = toupper(appNames[dataIdx][0]);
@@ -206,8 +232,6 @@ void updateDisplay() {
       titleName[3] = tolower(appNames[dataIdx][3]);
       titleName[4] = '\0';
       display.print(titleName);
-    } else {
-      display.print("----");
     }
   }
 
