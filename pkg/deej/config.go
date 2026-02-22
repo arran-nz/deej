@@ -58,7 +58,7 @@ const (
 	configKeyLEDRefreshInterval  = "led_refresh_interval"
 	configKeyLEDMode             = "led_mode"
 
-	defaultCOMPort           = "COM4"
+	defaultCOMPort           = "auto"
 	defaultBaudRate          = 9600
 	defaultLEDRefreshSeconds = 5
 	defaultLEDMode           = "process"
@@ -237,6 +237,9 @@ func (cc *CanonicalConfig) populateFromVipers() error {
 
 	// get the rest of the config fields - viper saves us a lot of effort here
 	cc.ConnectionInfo.COMPort = cc.userConfig.GetString(configKeyCOMPort)
+	if strings.EqualFold(cc.ConnectionInfo.COMPort, "auto") {
+		cc.ConnectionInfo.COMPort = "auto"
+	}
 
 	cc.ConnectionInfo.BaudRate = cc.userConfig.GetInt(configKeyBaudRate)
 	if cc.ConnectionInfo.BaudRate <= 0 {

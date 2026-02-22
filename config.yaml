@@ -22,7 +22,8 @@ slider_mapping:
 invert_sliders: false
 
 # settings for connecting to the arduino board
-com_port: COM8
+# com_port: set to "auto" to scan for the device, or specify a port like "COM3"
+com_port: auto
 baud_rate: 9600
 
 # adjust the amount of signal noise reduction depending on your hardware quality
