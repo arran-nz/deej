@@ -14,6 +14,7 @@ var (
 
 	verbose   bool
 	logFilter string
+	cliMode   bool
 )
 
 func init() {
@@ -21,6 +22,7 @@ func init() {
 	flag.BoolVar(&verbose, "v", false, "shorthand for --verbose")
 	flag.StringVar(&logFilter, "log-filter", "", "filter logs by component (e.g., 'audio-meter', 'serial', 'process-monitor')")
 	flag.StringVar(&logFilter, "f", "", "shorthand for --log-filter")
+	flag.BoolVar(&cliMode, "cli", false, "run in CLI mode (no tray icon, exits on Ctrl+C)")
 	flag.Parse()
 }
 
@@ -51,6 +53,10 @@ func main() {
 	d, err := deej.NewDeej(logger, verbose)
 	if err != nil {
 		named.Fatalw("Failed to create deej object", "error", err)
+	}
+
+	if cliMode {
+		d.SetCLIMode(true)
 	}
 
 	// Set version info for tray display if provided by build process

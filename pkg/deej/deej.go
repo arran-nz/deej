@@ -31,6 +31,7 @@ type Deej struct {
 	stopChannel chan bool
 	version     string
 	verbose     bool
+	cliMode     bool
 }
 
 // NewDeej creates a Deej instance
@@ -107,9 +108,14 @@ func (d *Deej) Initialize() error {
 	}
 
 	// decide whether to run with/without tray
-	if _, noTraySet := os.LookupEnv(envNoTray); noTraySet {
+	_, noTraySet := os.LookupEnv(envNoTray)
+	if d.cliMode || noTraySet {
 
-		d.logger.Debugw("Running without tray icon", "reason", "envvar set")
+		if d.cliMode {
+			d.logger.Debugw("Running without tray icon", "reason", "cli mode")
+		} else {
+			d.logger.Debugw("Running without tray icon", "reason", "envvar set")
+		}
 
 		// run in main thread while waiting on ctrl+C
 		d.setupInterruptHandler()
@@ -126,6 +132,11 @@ func (d *Deej) Initialize() error {
 // SetVersion causes deej to add a version string to its tray menu if called before Initialize
 func (d *Deej) SetVersion(version string) {
 	d.version = version
+}
+
+// SetCLIMode enables CLI mode (no tray icon, clean exit on Ctrl+C)
+func (d *Deej) SetCLIMode(enabled bool) {
+	d.cliMode = enabled
 }
 
 // Verbose returns a boolean indicating whether deej is running in verbose mode
@@ -196,7 +207,9 @@ func (d *Deej) stop() error {
 		return fmt.Errorf("release session map: %w", err)
 	}
 
-	d.stopTray()
+	if !d.cliMode {
+		d.stopTray()
+	}
 
 	// attempt to sync on exit - this won't necessarily work but can't harm
 	d.logger.Sync()
