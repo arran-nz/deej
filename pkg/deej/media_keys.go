@@ -8,13 +8,13 @@ import (
 )
 
 var (
-	user32           = syscall.NewLazyDLL("user32.dll")
-	procSendInput    = user32.NewProc("SendInput")
+	user32        = syscall.NewLazyDLL("user32.dll")
+	procSendInput = user32.NewProc("SendInput")
 )
 
 const (
-	INPUT_KEYBOARD    = 1
-	KEYEVENTF_KEYUP   = 0x0002
+	INPUT_KEYBOARD      = 1
+	KEYEVENTF_KEYUP     = 0x0002
 	VK_MEDIA_PLAY_PAUSE = 0xB3
 	VK_MEDIA_NEXT_TRACK = 0xB0
 	VK_MEDIA_PREV_TRACK = 0xB1
